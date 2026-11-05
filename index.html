@@ -1,0 +1,1076 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PC Build Tracker</title>
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<!-- Only load code from this site and the Supabase library; only talk to Supabase. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://*.supabase.in wss://*.supabase.in; object-src 'none'; base-uri 'self'; form-action 'self'">
+<link rel="icon" href="favicon.ico">
+<!--
+  PC Build Tracker - website edition (GitHub Pages + Supabase)
+  Files: index.html (this page), app.js (logic), config.js (your Supabase project).
+  Anyone can VIEW. Editing needs a sign-in, and the database itself enforces that.
+-->
+<style>
+  /* ======================= Theme: every shared value lives here ======================= */
+  :root {
+    --bg: #07090c;            /* carbon */
+    --bg-2: #0a0d12;
+    --panel: #0e1218;         /* slate */
+    --panel-2: #121720;
+    --raised: #171d27;
+    --raised-2: #1e2532;
+    --line: #1c2330;
+    --line-2: #283142;
+    --text: #f3f6fa;
+    --text-2: #c9d1de;
+    --muted: #8d98ab;
+    --faint: #5c6679;
+
+    --green: #3ddc97;         /* the money colour: all +/− flows, primary actions */
+    --green-2: #2fbf82;
+    --green-ink: #03130c;
+    --green-soft: rgba(61, 220, 151, .10);
+    --green-line: rgba(61, 220, 151, .32);
+    --amber: #f2c14e;         /* active builds */
+    --amber-soft: rgba(242, 193, 78, .11);
+    --blue: #7fb2ff;          /* needs review / info */
+    --blue-soft: rgba(127, 178, 255, .11);
+    --red: #ff6b6b;           /* losses & negative balances only */
+    --red-soft: rgba(255, 107, 107, .11);
+
+    --r-sm: 8px; --r: 12px; --r-lg: 16px; --r-xl: 20px;
+    --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 20px; --s6: 24px; --s8: 32px;
+
+    --sans: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+    --display: "Segoe UI Variable Display", "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+    --mono: "Cascadia Mono", ui-monospace, Consolas, monospace;
+
+    --shadow: 0 18px 50px rgba(0, 0, 0, .5);
+    --hi: inset 0 1px 0 rgba(255, 255, 255, .035);
+    --spring: cubic-bezier(.34, 1.56, .64, 1);
+    --ease: cubic-bezier(.2, .8, .2, 1);
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    min-height: 100vh;
+    color: var(--text);
+    font: 14px/1.45 var(--sans);
+    -webkit-font-smoothing: antialiased;
+    background:
+      radial-gradient(900px 480px at 0% -8%, rgba(61,220,151,.07), transparent 60%),
+      radial-gradient(800px 460px at 100% -4%, rgba(127,178,255,.05), transparent 60%),
+      linear-gradient(rgba(255,255,255,.012) 1px, transparent 1px) 0 0 / 100% 28px,
+      var(--bg);
+  }
+  button, input, textarea, select { font: inherit; color: inherit; }
+  img { display: block; }
+  .num, .money { font-variant-numeric: tabular-nums; }
+  .flow { color: var(--green); }               /* signed money flows */
+  .loss { color: var(--red); }                 /* losses / negative balances */
+  .muted { color: var(--muted); }
+  .wrap { max-width: 1400px; margin: 0 auto; padding: var(--s6) 28px 110px; }
+  :focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+  ::selection { background: rgba(61,220,151,.25); }
+
+  /* ======================= Buttons (spring micro-interactions) ======================= */
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: var(--s2);
+    height: 36px; padding: 0 14px; border-radius: var(--r-sm);
+    border: 1px solid var(--line-2); background: var(--raised); color: var(--text);
+    font-weight: 600; font-size: 13.5px; cursor: pointer; white-space: nowrap; box-shadow: var(--hi);
+    transition: transform .2s var(--spring), background .15s, border-color .15s, box-shadow .2s, color .15s;
+  }
+  .btn:hover:not(:disabled) { background: var(--raised-2); border-color: #384357; transform: translateY(-1px); }
+  .btn:active:not(:disabled) { transform: scale(.95); transition-duration: .07s; }
+  .btn:disabled { opacity: .42; cursor: not-allowed; }
+  .btn.primary { background: var(--green); border-color: var(--green); color: var(--green-ink); }
+  .btn.primary:hover:not(:disabled) { background: #5ae8a9; border-color: #5ae8a9; box-shadow: 0 8px 24px rgba(61,220,151,.25); }
+  .btn.ghost { background: transparent; box-shadow: none; }
+  .btn.ghost:hover:not(:disabled) { background: var(--raised); }
+  .btn.soft { background: var(--green-soft); border-color: var(--green-line); color: var(--green); }
+  .btn.soft:hover:not(:disabled) { background: rgba(61,220,151,.17); }
+  .btn.danger { color: var(--red); background: transparent; border-color: transparent; box-shadow: none; }
+  .btn.danger:hover:not(:disabled) { background: var(--red-soft); }
+  .btn.sm { height: 30px; padding: 0 10px; font-size: 12.5px; }
+  .btn.lg { height: 44px; padding: 0 20px; font-size: 14.5px; }
+  .btn svg { width: 15px; height: 15px; flex: none; }
+  .btn.done { background: var(--green-soft); border-color: var(--green-line); color: var(--green); }
+  .icon-btn {
+    width: 30px; height: 30px; display: inline-grid; place-items: center; flex: none;
+    border-radius: var(--r-sm); border: 1px solid transparent; background: transparent;
+    color: var(--muted); cursor: pointer; transition: transform .2s var(--spring), background .15s, color .15s;
+  }
+  .icon-btn:hover { background: var(--raised); color: var(--text); transform: scale(1.08); }
+  .icon-btn:active { transform: scale(.9); }
+  .icon-btn svg { width: 16px; height: 16px; }
+
+  /* ======================= Top bar ======================= */
+  .topbar { display: flex; align-items: center; gap: var(--s3); margin-bottom: var(--s6); flex-wrap: wrap; }
+  .brand { display: flex; align-items: center; gap: 12px; margin-right: auto; }
+  .brand .logo {
+    width: 38px; height: 38px; border-radius: 11px; display: grid; place-items: center;
+    background: linear-gradient(135deg, var(--green), #2bb8e8); color: var(--green-ink);
+    box-shadow: 0 8px 22px rgba(61,220,151,.22);
+  }
+  .brand .logo svg { width: 19px; height: 19px; }
+  .brand h1 { font: 700 18px/1.2 var(--display); margin: 0; letter-spacing: -.01em; }
+  .brand small { display: block; color: var(--muted); font-size: 12px; }
+  .pill {
+    display: inline-flex; align-items: center; gap: var(--s2); height: 30px; padding: 0 12px;
+    border-radius: 999px; border: 1px solid var(--line); background: var(--panel);
+    color: var(--muted); font-size: 12.5px; cursor: pointer; white-space: nowrap;
+    transition: border-color .15s, color .15s, transform .2s var(--spring);
+  }
+  .pill:hover { border-color: var(--line-2); color: var(--text); transform: translateY(-1px); }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); flex: none; }
+  .pill.ok .dot { background: var(--green); box-shadow: 0 0 0 3px var(--green-soft); animation: pulse 2.4s ease-in-out infinite; }
+  .pill.warn .dot { background: var(--amber); box-shadow: 0 0 0 3px var(--amber-soft); }
+  .pill.err .dot { background: var(--red); box-shadow: 0 0 0 3px var(--red-soft); }
+  .save-state { font-size: 12px; color: var(--faint); min-width: 70px; text-align: right; transition: opacity .3s; }
+
+  /* ======================= Summary header ======================= */
+  .stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-bottom: var(--s6); }
+  .stat {
+    position: relative; overflow: hidden; border-radius: var(--r-lg); padding: 18px 20px 17px;
+    background: linear-gradient(180deg, var(--panel-2), var(--panel)); border: 1px solid var(--line); box-shadow: var(--hi);
+    transition: transform .25s var(--ease), border-color .2s;
+  }
+  .stat:hover { transform: translateY(-2px); border-color: var(--line-2); }
+  .stat::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 3px; background: var(--c, var(--line-2)); }
+  .stat::after {
+    content: ""; position: absolute; right: -40px; top: -40px; width: 120px; height: 120px; border-radius: 50%;
+    background: radial-gradient(var(--c, transparent), transparent 70%); opacity: .08;
+  }
+  .stat .k { font-size: 11.5px; letter-spacing: .09em; text-transform: uppercase; color: var(--muted); font-weight: 650; }
+  .stat .v { font: 700 30px/1.1 var(--display); letter-spacing: -.02em; margin-top: 8px; display: inline-block; }
+  .stat .s { font-size: 12.5px; color: var(--faint); margin-top: 6px; }
+  .stat.active { --c: var(--amber); }
+  .stat.sold { --c: var(--green); }
+  .stat.capital { --c: var(--blue); }
+  .stat.profit { --c: var(--green); }
+  .bump { animation: bump .45s var(--spring); }
+
+  /* ======================= Main tabs (sliding indicator) ======================= */
+  .tabs-row { display: flex; align-items: center; gap: var(--s3); margin-bottom: var(--s5); flex-wrap: wrap; }
+  .tabs {
+    position: relative; display: inline-flex; padding: 4px; gap: 2px;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--hi);
+  }
+  .tabs .indicator {
+    position: absolute; top: 4px; bottom: 4px; left: 0; width: 0; border-radius: 9px;
+    background: var(--raised-2); box-shadow: inset 0 0 0 1px var(--line-2), 0 4px 14px rgba(0,0,0,.25);
+    transition: transform .35s var(--spring), width .35s var(--spring);
+  }
+  .tab {
+    position: relative; z-index: 1; display: inline-flex; align-items: center; gap: 8px;
+    height: 34px; padding: 0 16px; border: 0; border-radius: 9px; background: transparent;
+    color: var(--muted); font-weight: 650; font-size: 13.5px; cursor: pointer; transition: color .2s;
+  }
+  .tab svg { width: 16px; height: 16px; }
+  .tab:hover { color: var(--text-2); }
+  .tab[aria-selected="true"] { color: var(--text); }
+  .tab .count { font-size: 11.5px; color: var(--faint); font-weight: 600; }
+  .panel { display: none; }
+  .panel.active { display: block; animation: panelIn .32s var(--ease); }
+
+  /* ======================= Builds toolbar ======================= */
+  .toolbar { display: flex; align-items: center; gap: var(--s3); margin-bottom: var(--s4); flex-wrap: wrap; }
+  .seg { position: relative; display: inline-flex; padding: 3px; gap: 2px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+  .seg button {
+    height: 28px; padding: 0 12px; border: 0; border-radius: 7px; background: transparent;
+    color: var(--muted); font-size: 13px; font-weight: 600; cursor: pointer; transition: background .2s, color .2s, transform .2s var(--spring);
+  }
+  .seg button:hover { color: var(--text); }
+  .seg button:active { transform: scale(.94); }
+  .seg button[aria-pressed="true"] { background: var(--raised-2); color: var(--text); box-shadow: inset 0 0 0 1px var(--line-2); }
+  .seg .n { color: var(--faint); margin-left: 4px; font-weight: 500; }
+  .search {
+    margin-left: auto; height: 36px; width: min(300px, 100%); padding: 0 12px 0 34px;
+    border-radius: var(--r-sm); border: 1px solid var(--line); background: var(--panel)
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%235c6679' stroke-width='2'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='m20 20-3.5-3.5'/%3E%3C/svg%3E") no-repeat 11px center / 15px;
+    transition: border-color .2s, box-shadow .2s;
+  }
+  .search:focus { border-color: var(--line-2); outline: none; box-shadow: 0 0 0 3px rgba(127,178,255,.12); }
+
+  /* ======================= Build cards ======================= */
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(470px, 100%), 1fr)); gap: var(--s4); align-items: start; }
+  .card {
+    position: relative; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-lg);
+    overflow: hidden; box-shadow: var(--hi); transition: border-color .2s, transform .25s var(--ease), box-shadow .25s;
+  }
+  .card:hover { border-color: var(--line-2); box-shadow: 0 10px 30px rgba(0,0,0,.28), var(--hi); }
+  .card::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--amber); transition: background .3s; z-index: 1; }
+  .card.is-sold::before { background: var(--green); }
+  .card.needs-review::before { background: var(--blue); }
+  .enter { animation: cardIn .42s var(--ease) both; animation-delay: calc(var(--i, 0) * 45ms); }
+  .card-head { display: flex; align-items: center; gap: 10px; padding: 14px 16px 14px 14px; background: var(--panel-2); border-bottom: 1px solid var(--line); transition: border-color .25s; }
+  .card.collapsed .card-head { border-bottom-color: transparent; }
+  .chev svg { transition: transform .3s var(--spring); }
+  .card.collapsed .chev svg { transform: rotate(-90deg); }
+  .collapse { display: grid; grid-template-rows: 1fr; transition: grid-template-rows .32s var(--ease); }
+  .collapse > .inner { overflow: hidden; min-height: 0; }
+  .card.collapsed .collapse, .collapse.closed { grid-template-rows: 0fr; }
+  .name-input {
+    flex: 1; min-width: 0; height: 32px; padding: 0 8px; margin-left: -4px;
+    border: 1px solid transparent; border-radius: var(--r-sm); background: transparent;
+    font: 650 15.5px var(--display); transition: border-color .15s, background .15s;
+  }
+  .name-input:hover { border-color: var(--line); }
+  .name-input:focus { border-color: var(--line-2); background: var(--bg); outline: none; }
+  .badge {
+    display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 9px; border-radius: 999px;
+    font-size: 11.5px; font-weight: 700; letter-spacing: .02em; flex: none; white-space: nowrap;
+  }
+  .badge.active { color: var(--amber); background: var(--amber-soft); }
+  .badge.sold { color: var(--green); background: var(--green-soft); }
+  .badge.review { color: var(--blue); background: var(--blue-soft); }
+  .head-num { text-align: right; flex: none; min-width: 100px; }
+  .head-num .k { display: block; font-size: 10.5px; text-transform: uppercase; letter-spacing: .08em; color: var(--faint); }
+  .head-num .v { font-weight: 700; font-size: 15px; }
+
+  .card-body { padding: var(--s4) 18px 18px; display: grid; gap: var(--s4); }
+  .label { display: flex; justify-content: space-between; align-items: baseline; font-size: 11.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); font-weight: 650; margin-bottom: 6px; }
+  .label span { text-transform: none; letter-spacing: 0; color: var(--faint); font-weight: 500; }
+
+  table.items { width: 100%; border-collapse: collapse; }
+  table.items th { text-align: left; font-size: 11.5px; color: var(--faint); font-weight: 600; padding: 0 6px 6px; border-bottom: 1px solid var(--line); }
+  table.items th.cost, table.items td.cost { width: 142px; }
+  table.items td.del { width: 62px; text-align: right; white-space: nowrap; }
+  table.items td { padding: 3px 0; border-bottom: 1px solid rgba(28,35,48,.7); }
+  table.items tr:last-child td { border-bottom: 0; }
+  table.items tbody tr { transition: background .15s; }
+  table.items tbody tr:hover { background: rgba(255,255,255,.015); }
+  table.items tr.enter { animation: rowIn .3s var(--ease) both; }
+  .cell {
+    width: 100%; height: 32px; padding: 0 6px; border: 1px solid transparent; border-radius: 7px; background: transparent;
+    transition: border-color .15s, background .15s;
+  }
+  .cell:hover { border-color: var(--line); }
+  .cell:focus { border-color: var(--line-2); background: var(--bg); outline: none; }
+  .cost-wrap { display: flex; align-items: center; justify-content: flex-end; padding-right: 2px; color: var(--green); font-variant-numeric: tabular-nums; }
+  .cost-wrap .sign { padding-right: 1px; font-weight: 600; }
+  .cell.cost-in { text-align: right; width: 7ch; max-width: 112px; padding: 0 4px; color: var(--green); font-variant-numeric: tabular-nums; -moz-appearance: textfield; }
+  .cell.cost-in::-webkit-inner-spin-button, .cell.cost-in::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+  .cell::placeholder, .field input::placeholder, textarea::placeholder { color: var(--faint); }
+  tr .del .icon-btn { opacity: 0; }
+  tr:hover .del .icon-btn, tr .del .icon-btn:focus-visible { opacity: 1; }
+  tr .del .icon-btn.link { opacity: .7; }
+  tr .del .icon-btn[data-act="del-item"]:hover { color: var(--red); background: var(--red-soft); }
+  .empty-items { color: var(--faint); font-size: 13px; padding: 10px 6px; }
+
+  .items-foot { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; gap: var(--s3); }
+  .total-pill { display: inline-flex; align-items: baseline; gap: 10px; padding: 7px 12px; border-radius: 10px; background: var(--bg-2); border: 1px solid var(--line); }
+  .total-pill .k { font-size: 12px; color: var(--muted); }
+  .total-pill .v { font-size: 17px; font-weight: 750; }
+
+  .field label, .field .lbl { display: block; font-size: 11.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); font-weight: 650; margin-bottom: 6px; }
+  .field input, .field textarea, .field select {
+    width: 100%; padding: 8px 10px; border-radius: var(--r-sm); border: 1px solid var(--line); background: var(--bg-2);
+    transition: border-color .15s, box-shadow .2s;
+  }
+  .field input, .field select { height: 38px; }
+  .field textarea { resize: vertical; min-height: 40px; line-height: 1.4; }
+  .field input:focus, .field textarea:focus, .field select:focus { border-color: var(--line-2); outline: none; box-shadow: 0 0 0 3px rgba(127,178,255,.10); }
+  .url-row { display: flex; gap: var(--s2); }
+  .url-row input { flex: 1; min-width: 0; font-family: var(--mono); font-size: 12.5px; }
+  .check-line { margin-top: 6px; font-size: 12px; color: var(--faint); display: flex; align-items: center; gap: 6px; }
+  .check-line .dot { width: 6px; height: 6px; }
+  .check-line.live .dot { background: var(--green); }
+  .check-line.problem .dot { background: var(--amber); }
+
+  .review-banner { display: flex; gap: var(--s3); padding: 12px 14px; border-radius: var(--r); background: var(--blue-soft); border: 1px solid rgba(127,178,255,.25); }
+  .review-banner p { margin: 0 0 8px; font-size: 13px; color: #d3e2ff; }
+  .review-banner strong { color: var(--text); }
+  .review-banner .actions { display: flex; gap: var(--s2); flex-wrap: wrap; }
+
+  .sale { border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; }
+  .sale-grid { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); }
+  .sale-grid > div { padding: 10px 12px; border-right: 1px solid var(--line); }
+  .sale-grid > div:last-child { border-right: 0; background: var(--green-soft); }
+  .sale-grid > div.is-loss:last-child { background: var(--red-soft); }
+  .sale-grid .k { display: block; font-size: 11px; color: var(--muted); }
+  .sale-grid .v { font-weight: 700; font-size: 14.5px; }
+  .sale-meta { padding: 8px 12px; font-size: 12px; color: var(--faint); border-top: 1px solid var(--line); background: var(--panel-2); display: flex; flex-wrap: wrap; gap: 4px 12px; }
+  .sale-meta b { font-weight: 600; }
+
+  .card-foot { display: flex; align-items: center; gap: var(--s2); padding-top: var(--s1); }
+  .spacer { flex: 1; }
+
+  .empty { border: 1px dashed var(--line-2); border-radius: var(--r-lg); padding: 56px 24px; text-align: center; color: var(--muted); animation: fadeIn .3s ease; }
+  .empty h3 { margin: 0 0 6px; color: var(--text); font: 650 16px var(--display); }
+  .empty p { margin: 0 0 18px; }
+
+  /* ======================= Generic panels (Part Finder / Money) ======================= */
+  .box { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-lg); padding: 20px; box-shadow: var(--hi); }
+  .box h3 { margin: 0; font: 650 15px var(--display); }
+  .box .sub { margin: 4px 0 0; color: var(--muted); font-size: 12.5px; }
+  .box-head { display: flex; align-items: flex-start; gap: var(--s3); margin-bottom: var(--s4); }
+  .section-title { display: flex; align-items: center; gap: var(--s3); margin: var(--s8) 0 var(--s4); }
+  .section-title h2 { margin: 0; font: 650 16px var(--display); }
+  .section-title p { margin: 0; color: var(--muted); font-size: 12.5px; }
+
+  /* ======================= Part Finder ======================= */
+  .finder { display: grid; grid-template-columns: minmax(0, 380px) minmax(0, 1fr); gap: var(--s4); align-items: start; }
+  .finder-form { display: grid; gap: var(--s4); position: sticky; top: 16px; }
+  .big-input { position: relative; }
+  .big-input input { height: 48px; font-size: 16px; font-weight: 600; padding-left: 40px; }
+  .big-input svg { position: absolute; left: 13px; top: 50%; width: 18px; height: 18px; transform: translateY(-50%); color: var(--faint); pointer-events: none; }
+  .money-field { display: flex; align-items: center; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--bg-2); padding: 0 10px; transition: border-color .15s, box-shadow .2s; }
+  .money-field:focus-within { border-color: var(--line-2); box-shadow: 0 0 0 3px rgba(127,178,255,.10); }
+  .money-field span { color: var(--muted); margin-right: 4px; }
+  .field .money-field input { border: 0; background: transparent; padding: 0; height: 36px; box-shadow: none; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px; border-radius: 999px;
+    border: 1px solid var(--line-2); background: var(--panel-2); color: var(--text-2); font-size: 13px; font-weight: 600; cursor: pointer;
+    transition: transform .2s var(--spring), background .15s, border-color .15s, color .15s;
+  }
+  .chip:hover { transform: translateY(-1px); border-color: #384357; }
+  .chip:active { transform: scale(.94); }
+  .chip[aria-pressed="true"] { background: var(--green-soft); border-color: var(--green-line); color: var(--green); }
+  .chip[aria-pressed="true"]::before { content: "✓"; font-size: 11px; }
+  .toggle-row { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); padding: 2px 0; }
+  .toggle-row .t { font-weight: 600; font-size: 13.5px; }
+  .toggle-row small { display: block; color: var(--faint); font-size: 12px; }
+  .switch { position: relative; width: 40px; height: 23px; flex: none; }
+  .switch input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; z-index: 1; }
+  .switch span { position: absolute; inset: 0; border-radius: 999px; background: var(--raised-2); border: 1px solid var(--line-2); transition: background .2s, border-color .2s; }
+  .switch span::after { content: ""; position: absolute; top: 2px; left: 2px; width: 17px; height: 17px; border-radius: 50%; background: #c6cfdc; transition: transform .3s var(--spring), background .2s; }
+  .switch input:checked + span { background: var(--green); border-color: var(--green); }
+  .switch input:checked + span::after { transform: translateX(17px); background: var(--green-ink); }
+  .switch input:focus-visible + span { outline: 2px solid var(--blue); outline-offset: 2px; }
+  .disclosure { display: flex; align-items: center; gap: 6px; background: none; border: 0; padding: 0; color: var(--muted); font-size: 12.5px; font-weight: 600; cursor: pointer; }
+  .disclosure svg { width: 14px; height: 14px; transition: transform .3s var(--spring); }
+  .disclosure[aria-expanded="true"] svg { transform: rotate(180deg); }
+  .disclosure:hover { color: var(--text); }
+  .exclude-area { padding-top: 10px; display: grid; gap: 8px; }
+  .tagbox { display: flex; flex-wrap: wrap; gap: 6px; }
+  .tag { display: inline-flex; align-items: center; gap: 4px; height: 26px; padding: 0 4px 0 10px; border-radius: 999px; background: var(--raised); border: 1px solid var(--line-2); font-size: 12.5px; color: var(--text-2); animation: popIn .25s var(--spring); }
+  .tag button { width: 20px; height: 20px; border: 0; border-radius: 50%; background: transparent; color: var(--faint); cursor: pointer; display: grid; place-items: center; }
+  .tag button:hover { background: var(--red-soft); color: var(--red); }
+  .tag button svg { width: 12px; height: 12px; }
+  .form-actions { display: grid; grid-template-columns: 1fr auto; gap: var(--s2); }
+  .saved { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .saved-chip { display: inline-flex; align-items: stretch; border-radius: 10px; border: 1px solid var(--line-2); background: var(--panel-2); overflow: hidden; animation: popIn .3s var(--spring); transition: border-color .15s, transform .2s var(--spring); }
+  .saved-chip:hover { border-color: var(--green-line); transform: translateY(-1px); }
+  .saved-chip button { border: 0; background: transparent; cursor: pointer; }
+  .saved-chip .run { padding: 6px 10px 6px 12px; text-align: left; }
+  .saved-chip .run b { display: block; font-size: 13px; font-weight: 650; }
+  .saved-chip .run small { color: var(--faint); font-size: 11.5px; }
+  .saved-chip .run:active { transform: scale(.96); }
+  .saved-chip .x { width: 28px; color: var(--faint); border-left: 1px solid var(--line); display: grid; place-items: center; }
+  .saved-chip .x:hover { color: var(--red); background: var(--red-soft); }
+  .saved-chip .x svg { width: 12px; height: 12px; }
+
+  .results { display: grid; gap: 10px; }
+  .result {
+    display: grid; grid-template-columns: 76px minmax(0, 1fr) auto; gap: 14px; align-items: center;
+    padding: 12px; border-radius: var(--r); background: var(--panel); border: 1px solid var(--line);
+    transition: border-color .2s, transform .25s var(--ease), box-shadow .25s;
+  }
+  .result:hover { border-color: var(--line-2); transform: translateY(-2px); box-shadow: 0 10px 26px rgba(0,0,0,.3); }
+  .result .thumb { width: 76px; height: 76px; border-radius: 10px; background: var(--raised) center / cover no-repeat; overflow: hidden; display: grid; place-items: center; color: var(--faint); }
+  .result .thumb img { width: 100%; height: 100%; object-fit: cover; }
+  .result .thumb svg { width: 28px; height: 28px; display: block; }
+  .result .rank { font: 700 11px var(--mono); color: var(--green); letter-spacing: .05em; }
+  .result .title { display: block; font-weight: 600; color: var(--text); text-decoration: none; margin: 2px 0 4px; line-height: 1.35; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  .result .title:hover { color: var(--green); }
+  .result .meta { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 12px; color: var(--muted); }
+  .result .price { text-align: right; display: grid; gap: 6px; justify-items: end; }
+  .result .price .total { font: 700 19px var(--display); }
+  .result .price small { color: var(--muted); font-size: 12px; }
+  .result.best { border-color: var(--green-line); background: linear-gradient(90deg, rgba(61,220,151,.06), transparent 60%), var(--panel); }
+  .results-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; font-size: 12.5px; color: var(--muted); margin-bottom: 4px; }
+  .skel { border-radius: 8px; background: linear-gradient(90deg, var(--raised) 25%, var(--raised-2) 50%, var(--raised) 75%); background-size: 200% 100%; animation: shimmer 1.2s linear infinite; }
+  .notice { padding: 16px 18px; border-radius: var(--r); border: 1px solid var(--line-2); background: var(--panel-2); color: var(--text-2); font-size: 13.5px; animation: fadeIn .3s ease; }
+  .notice.err { border-color: rgba(255,107,107,.35); background: var(--red-soft); }
+  .notice p { margin: 0 0 10px; }
+
+  /* ======================= Money ======================= */
+  .money-top { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s4); }
+  .calc { display: grid; gap: 2px; margin-top: var(--s2); }
+  .calc-row { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); padding: 9px 0; border-bottom: 1px dashed var(--line-2); }
+  .calc-row:last-child { border-bottom: 0; }
+  .calc-row .k { color: var(--text-2); }
+  .calc-row .k small { display: block; color: var(--faint); font-size: 12px; }
+  .calc-row .v { font-weight: 700; font-size: 15px; }
+  .calc-row.total { border-top: 1px solid var(--line-2); border-bottom: 0; margin-top: 4px; padding-top: 12px; }
+  .calc-row.total .k { font-weight: 650; color: var(--text); }
+  .calc-row.total .v { font: 750 24px var(--display); }
+  .bank-input { display: flex; align-items: center; height: 44px; border-radius: 10px; border: 1px solid var(--line-2); background: var(--bg-2); padding: 0 12px; width: 190px; transition: border-color .15s, box-shadow .2s; }
+  .bank-input:focus-within { border-color: var(--green-line); box-shadow: 0 0 0 3px var(--green-soft); }
+  .bank-input span { color: var(--muted); font-size: 18px; margin-right: 4px; }
+  .bank-input input { width: 100%; border: 0; background: transparent; font: 700 19px var(--display); text-align: right; outline: none; -moz-appearance: textfield; }
+  .bank-input input::-webkit-inner-spin-button { -webkit-appearance: none; }
+  .allow-hero { display: flex; align-items: flex-end; justify-content: space-between; gap: var(--s3); margin: 6px 0 var(--s3); }
+  .allow-hero .v { font: 750 34px/1 var(--display); letter-spacing: -.02em; }
+  .allow-hero .k { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+  .split-chip { display: inline-flex; align-items: center; gap: 8px; height: 28px; padding: 0 10px; border-radius: 999px; background: var(--panel-2); border: 1px solid var(--line-2); font-size: 12px; color: var(--text-2); cursor: pointer; transition: border-color .15s, transform .2s var(--spring); }
+  .split-chip:hover { border-color: var(--green-line); transform: translateY(-1px); }
+  .split-bar { display: flex; height: 6px; border-radius: 999px; overflow: hidden; background: var(--raised-2); margin: 4px 0 10px; }
+  .split-bar span { transition: width .6s var(--ease); }
+  .split-bar .biz { background: var(--blue); }
+  .split-bar .you { background: var(--green); }
+  .split-legend { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); }
+  .split-legend b { color: var(--text); }
+
+  .pots { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(280px, 100%), 1fr)); gap: var(--s4); }
+  .pot { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-lg); overflow: hidden; box-shadow: var(--hi); transition: transform .25s var(--ease), border-color .2s, box-shadow .25s; display: flex; flex-direction: column; }
+  .pot:hover { transform: translateY(-3px); border-color: var(--line-2); box-shadow: 0 14px 34px rgba(0,0,0,.35); }
+  .pot-img { position: relative; aspect-ratio: 16 / 9; background: radial-gradient(circle at 30% 20%, rgba(61,220,151,.18), transparent 60%), linear-gradient(135deg, #131a24, #0c1017); overflow: hidden; }
+  .pot-img img { position: relative; z-index: 1; width: 100%; height: 100%; object-fit: cover; transition: transform .6s var(--ease); }
+  .pot-img .goal { z-index: 2; }
+  .pot:hover .pot-img img { transform: scale(1.04); }
+  .pot-img .ph { position: absolute; inset: 0; display: grid; place-items: center; color: var(--faint); font-size: 12.5px; }
+  .pot-img .ph svg { width: 30px; height: 30px; margin: 0 auto 6px; display: block; }
+  .pot-img.broken img { display: none; }
+  .pot-img .goal { position: absolute; left: 10px; top: 10px; }
+  .pot-body { padding: 14px 16px 16px; display: grid; gap: 10px; flex: 1; }
+  .pot-head { display: flex; align-items: center; gap: 8px; }
+  .pot-head h4 { margin: 0; flex: 1; font: 650 15px var(--display); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pot-amounts { display: flex; align-items: baseline; gap: 6px; }
+  .pot-amounts .bal { font: 750 22px var(--display); }
+  .pot-amounts .of { color: var(--muted); font-size: 13px; }
+  .pot-amounts .pct { margin-left: auto; font-weight: 700; color: var(--green); font-size: 13px; }
+  .bar { height: 8px; border-radius: 999px; background: var(--raised-2); overflow: hidden; }
+  .bar span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--green-2), var(--green)); transition: width .7s var(--ease); animation: grow .9s var(--ease); }
+  .pot.reached .bar span { background: linear-gradient(90deg, var(--green), #8ff0c6, var(--green)); background-size: 200% 100%; animation: grow .9s var(--ease), shimmer 2.4s linear infinite; }
+  .pot-meta { font-size: 12px; color: var(--faint); display: flex; align-items: center; gap: 6px; min-height: 18px; }
+  .pot-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: auto; }
+  .pot.new-pot { border-style: dashed; display: grid; place-items: center; min-height: 260px; cursor: pointer; color: var(--muted); background: transparent; }
+  .pot.new-pot:hover { color: var(--green); border-color: var(--green-line); }
+  .pot.new-pot svg { width: 28px; height: 28px; margin: 0 auto 8px; display: block; }
+
+  .ledger { display: grid; }
+  .ledger-row { display: grid; grid-template-columns: 36px minmax(0,1fr) auto 30px; gap: 12px; align-items: center; padding: 10px 4px; border-bottom: 1px solid var(--line); }
+  .ledger-row.enter { animation: rowIn .3s var(--ease) both; }
+  .ledger-row:last-child { border-bottom: 0; }
+  .ledger-row .ic { width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; background: var(--green-soft); color: var(--green); }
+  .ledger-row .ic svg { width: 17px; height: 17px; }
+  .ledger-row .what b { display: block; font-weight: 600; font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ledger-row .what small { color: var(--faint); font-size: 12px; }
+  .ledger-row .amt { font-weight: 700; font-size: 14.5px; text-align: right; }
+  .ledger-row .icon-btn { opacity: 0; }
+  .ledger-row:hover .icon-btn { opacity: 1; }
+
+  /* ======================= Dialogs ======================= */
+  dialog {
+    width: min(480px, calc(100vw - 32px)); padding: 0; border: 1px solid var(--line-2); border-radius: var(--r-xl);
+    background: linear-gradient(180deg, var(--panel-2), var(--panel)); color: var(--text); box-shadow: var(--shadow), var(--hi);
+  }
+  dialog.wide { width: min(560px, calc(100vw - 32px)); }
+  dialog[open] { animation: dlgIn .28s var(--spring); }
+  dialog[open]::backdrop { animation: fadeIn .22s ease; }
+  dialog.closing { animation: dlgOut .17s ease forwards; }
+  dialog.closing::backdrop { animation: fadeOut .17s ease forwards; }
+  dialog::backdrop { background: rgba(3,5,8,.7); backdrop-filter: blur(4px); }
+  dialog form { padding: 22px; display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s4); }
+  dialog h2 { margin: 0; font: 700 18px var(--display); }
+  dialog .sub { margin: -10px 0 0; color: var(--muted); font-size: 13px; }
+  .money-input { display: flex; align-items: center; border: 1px solid var(--line-2); border-radius: 12px; background: var(--bg-2); padding: 0 14px; transition: border-color .15s, box-shadow .2s; }
+  .money-input:focus-within { border-color: var(--green-line); box-shadow: 0 0 0 3px var(--green-soft); }
+  .money-input .cur { color: var(--muted); font-size: 22px; margin-right: 6px; }
+  .field .money-input input { height: 54px; padding: 0; border: 0; background: transparent; box-shadow: none; }
+  .money-input input { flex: 1; width: 100%; min-width: 0; height: 54px; border: 0; background: transparent; font: 700 26px var(--display); outline: none; font-variant-numeric: tabular-nums; -moz-appearance: textfield; }
+  .money-input input::-webkit-inner-spin-button, .money-input input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+  fieldset { border: 0; padding: 0; margin: 0; min-width: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  legend { font-size: 11.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); font-weight: 650; margin-bottom: 6px; padding: 0; }
+  .opt { position: relative; display: block; cursor: pointer; }
+  .opt input { position: absolute; opacity: 0; }
+  .opt span { display: block; padding: 12px 14px; border: 1px solid var(--line-2); border-radius: 12px; background: var(--panel-2); transition: border-color .2s, background .2s, transform .2s var(--spring); }
+  .opt:hover span { transform: translateY(-1px); }
+  .opt:active span { transform: scale(.97); }
+  .opt strong { display: block; font-size: 14px; }
+  .opt small { color: var(--muted); font-size: 12px; }
+  .opt input:checked + span { border-color: var(--green); background: var(--green-soft); }
+  .opt input:focus-visible + span { outline: 2px solid var(--blue); outline-offset: 2px; }
+  dl.breakdown { margin: 0; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+  dl.breakdown div { display: flex; justify-content: space-between; padding: 9px 14px; border-bottom: 1px solid var(--line); }
+  dl.breakdown div:last-child { border-bottom: 0; background: var(--panel-2); font-weight: 750; font-size: 15px; }
+  dl.breakdown dt { color: var(--muted); }
+  dl.breakdown dd { margin: 0; font-variant-numeric: tabular-nums; }
+  .split-preview { border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; display: grid; gap: 6px; font-size: 13px; }
+  .split-preview .row { display: flex; justify-content: space-between; gap: 10px; animation: fadeIn .25s ease; }
+  .split-preview .row span:first-child { color: var(--text-2); }
+  .split-preview .head { font-size: 11.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); font-weight: 650; }
+  .dlg-actions { display: flex; justify-content: flex-end; gap: var(--s2); align-items: center; }
+  .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s3); }
+  .form-row.three { grid-template-columns: 1fr 1fr 1fr; }
+  .settings-block { border-top: 1px solid var(--line); padding-top: var(--s4); display: grid; gap: 10px; }
+  .settings-block h3 { margin: 0; font-size: 13.5px; font-weight: 650; }
+  .settings-block p { margin: 0; color: var(--muted); font-size: 12.5px; }
+  .settings-block code { font-family: var(--mono); font-size: 12px; color: var(--text); background: var(--bg-2); padding: 1px 5px; border-radius: 4px; word-break: break-all; }
+  .btn-row { display: flex; gap: var(--s2); flex-wrap: wrap; align-items: center; }
+  input[type="range"] { width: 100%; accent-color: var(--green); }
+  .form-error { color: var(--red); font-size: 12.5px; min-height: 0; margin-top: -6px; }
+  .form-error:empty { display: none; }
+  .img-drop { position: relative; border: 1px dashed var(--line-2); border-radius: 12px; aspect-ratio: 16 / 7; display: grid; place-items: center; overflow: hidden; background: var(--bg-2); color: var(--muted); font-size: 12.5px; text-align: center; transition: border-color .2s, background .2s; }
+  .img-drop.drag { border-color: var(--green); background: var(--green-soft); }
+  .img-drop img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; animation: fadeIn .3s ease; }
+  .img-drop .clear { position: absolute; top: 8px; right: 8px; z-index: 1; background: rgba(0,0,0,.6); }
+  .check { display: flex; align-items: center; gap: 10px; font-size: 13.5px; cursor: pointer; }
+  .check input { width: 17px; height: 17px; accent-color: var(--green); }
+
+  /* ======================= Dropdown menu ======================= */
+  .menu {
+    position: fixed; z-index: 60; min-width: 240px; max-width: 320px; padding: 6px; border-radius: 12px;
+    background: var(--raised); border: 1px solid var(--line-2); box-shadow: var(--shadow);
+    opacity: 0; transform: translateY(-6px) scale(.97); transform-origin: top right; pointer-events: none;
+    transition: opacity .14s ease, transform .22s var(--spring);
+  }
+  .menu.open { opacity: 1; transform: none; pointer-events: auto; }
+  .menu .mh { padding: 6px 10px 4px; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--faint); font-weight: 650; }
+  .menu button { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; padding: 9px 10px; border: 0; border-radius: 8px; background: transparent; cursor: pointer; text-align: left; font-size: 13.5px; transition: background .12s, transform .15s var(--spring); }
+  .menu button:hover, .menu button:focus-visible { background: var(--raised-2); outline: none; }
+  .menu button:active { transform: scale(.97); }
+  .menu button small { color: var(--muted); font-size: 12px; }
+  .menu hr { border: 0; border-top: 1px solid var(--line-2); margin: 6px 0; }
+
+  /* ======================= Toasts ======================= */
+  .toasts { position: fixed; right: 20px; bottom: 20px; display: grid; gap: 8px; z-index: 70; }
+  .toast { padding: 11px 14px; border-radius: 12px; background: var(--raised); border: 1px solid var(--line-2); box-shadow: var(--shadow); font-size: 13px; max-width: 380px; animation: toastIn .35s var(--spring); }
+  .toast.ok { border-color: var(--green-line); }
+  .toast.err { border-color: rgba(255,107,107,.45); }
+  .toast.leaving { animation: toastOut .22s ease forwards; }
+
+  /* ======================= Keyframes ======================= */
+  @keyframes fadeIn { from { opacity: 0; } }
+  @keyframes fadeOut { to { opacity: 0; } }
+  @keyframes cardIn { from { opacity: 0; transform: translateY(10px) scale(.985); } }
+  @keyframes rowIn { from { opacity: 0; transform: translateX(-6px); } }
+  @keyframes panelIn { from { opacity: 0; transform: translateY(6px); } }
+  @keyframes popIn { from { opacity: 0; transform: scale(.85); } }
+  @keyframes dlgIn { from { opacity: 0; transform: translateY(10px) scale(.96); } }
+  @keyframes dlgOut { to { opacity: 0; transform: translateY(6px) scale(.97); } }
+  @keyframes toastIn { from { opacity: 0; transform: translateY(12px) scale(.96); } }
+  @keyframes toastOut { to { opacity: 0; transform: translateX(16px); } }
+  @keyframes bump { 40% { transform: scale(1.06); } }
+  @keyframes grow { from { width: 0; } }
+  @keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+  @keyframes pulse { 50% { box-shadow: 0 0 0 5px rgba(61,220,151,.05); } }
+
+  /* ======================= View / Edit modes & gate ======================= */
+  [hidden] { display: none !important; }
+  body:not(.edit) [data-edit-only] { display: none !important; }
+  body.edit [data-view-only] { display: none !important; }
+  body.gated { overflow: hidden; }
+  .gate {
+    position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; padding: 20px;
+    background: radial-gradient(700px 420px at 50% 30%, rgba(61,220,151,.08), transparent 70%), rgba(5,7,10,.88);
+    backdrop-filter: blur(10px); opacity: 0; transition: opacity .28s ease;
+  }
+  .gate.show { opacity: 1; }
+  .gate-card {
+    width: min(580px, 100%); text-align: center; padding: 34px 28px 24px; border-radius: 24px;
+    background: linear-gradient(180deg, var(--panel-2), var(--panel)); border: 1px solid var(--line-2); box-shadow: var(--shadow), var(--hi);
+    transform: translateY(14px) scale(.97); transition: transform .5s var(--spring);
+  }
+  .gate.show .gate-card { transform: none; }
+  .gate-card .logo { width: 58px; height: 58px; border-radius: 17px; margin: 0 auto 14px; display: grid; place-items: center; background: linear-gradient(135deg, var(--green), #2bb8e8); color: var(--green-ink); box-shadow: 0 10px 28px rgba(61,220,151,.25); }
+  .gate-card .logo svg { width: 27px; height: 27px; }
+  .gate-card h1 { font: 750 25px var(--display); margin: 0 0 6px; letter-spacing: -.01em; }
+  .gate-card > p, .gate-setup p { color: var(--muted); margin: 0 0 22px; }
+  .gate-options { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px; }
+  .gate-opt {
+    display: grid; gap: 6px; justify-items: center; text-align: center; padding: 22px 16px 20px; border-radius: 18px;
+    border: 1px solid var(--line-2); background: var(--panel-2); cursor: pointer;
+    transition: transform .28s var(--spring), border-color .2s, background .2s, box-shadow .25s;
+  }
+  .gate-opt:hover { transform: translateY(-4px); border-color: var(--green-line); box-shadow: 0 14px 34px rgba(0,0,0,.38); }
+  .gate-opt:active { transform: scale(.96); transition-duration: .08s; }
+  .gate-opt .ic { width: 48px; height: 48px; border-radius: 14px; display: grid; place-items: center; background: var(--raised-2); color: var(--text); margin-bottom: 4px; }
+  .gate-opt .ic svg { width: 23px; height: 23px; }
+  .gate-opt.edit .ic { background: var(--green-soft); color: var(--green); }
+  .gate-opt b { font: 700 17px var(--display); }
+  .gate-opt small { color: var(--muted); font-size: 12.5px; line-height: 1.45; }
+  .gate .check { justify-content: center; color: var(--muted); font-size: 12.5px; }
+  .gate-setup { text-align: left; }
+  .gate-setup ol { color: var(--text-2); padding-left: 20px; line-height: 1.7; margin: 0 0 14px; }
+  .gate-setup code { font-family: var(--mono); font-size: 12px; background: var(--bg-2); padding: 1px 5px; border-radius: 4px; }
+  .name-text { flex: 1; min-width: 0; margin: 0; padding-left: 4px; font: 650 15.5px var(--display); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  table.items.view td { padding: 8px 6px; }
+  table.items.view td.cost-v { text-align: right; white-space: nowrap; width: 130px; }
+  .qr { width: 196px; height: 196px; background: #fff; border-radius: 14px; padding: 8px; margin: 0 auto; }
+  .secret-code { font-family: var(--mono); font-size: 12.5px; word-break: break-all; text-align: center; color: var(--text-2); background: var(--bg-2); border-radius: 8px; padding: 8px; }
+  .field input.code-input { text-align: center; letter-spacing: .45em; font: 700 24px var(--mono); height: 54px; }
+  .steps { margin: 0; padding-left: 18px; color: var(--text-2); font-size: 13px; line-height: 1.6; }
+
+  @media (max-width: 1080px) { .finder { grid-template-columns: 1fr; } .finder-form { position: static; } }
+  @media (max-width: 960px) { .stats { grid-template-columns: repeat(2, minmax(0,1fr)); } .money-top { grid-template-columns: 1fr; } }
+  @media (max-width: 600px) {
+    .wrap { padding: var(--s4) 14px 90px; }
+    .stats { grid-template-columns: 1fr 1fr; gap: 10px; }
+    .stat .v { font-size: 22px; }
+    .sale-grid { grid-template-columns: 1fr 1fr; }
+    .search { margin-left: 0; width: 100%; }
+    .tab { padding: 0 11px; }
+    .tab .label-long { display: none; }
+    .result { grid-template-columns: 56px minmax(0,1fr); }
+    .result .thumb { width: 56px; height: 56px; }
+    .result .price { grid-column: 1 / -1; grid-template-columns: 1fr auto; align-items: center; justify-items: start; }
+    .form-row.three { grid-template-columns: 1fr 1fr; }
+    .bank-input { width: 150px; }
+    .gate-options { grid-template-columns: 1fr; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; }
+  }
+</style>
+</head>
+<body>
+<!-- ===== First visit: View or Edit? ===== -->
+<div class="gate" id="gate" hidden>
+  <div class="gate-card" role="dialog" aria-labelledby="gateTitle" aria-modal="true">
+    <div class="logo" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><rect x="6" y="3" width="12" height="18" rx="2"/><circle cx="12" cy="15" r="2.2"/><path d="M9.5 7h5"/></svg></div>
+    <h1 id="gateTitle">PC Build Tracker</h1>
+    <div id="gateOptions">
+      <p>How would you like to open it?</p>
+      <div class="gate-options">
+        <button class="gate-opt view" id="gateView" type="button"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></span><b>View</b><small>See builds, parts and results.<br>No login needed.</small></button>
+        <button class="gate-opt edit" id="gateEdit" type="button"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg></span><b>Edit</b><small>Sign in for full access:<br>builds, money and part finder.</small></button>
+      </div>
+      <label class="check"><input type="checkbox" id="gateRemember" checked> Remember my choice on this device</label>
+    </div>
+    <div class="gate-setup" id="gateSetup" hidden>
+      <p>This site isn't connected to its database yet.</p>
+      <ol>
+        <li>Open <code>config.js</code> in your GitHub repository.</li>
+        <li>Paste your Supabase <b>Project URL</b> and <b>publishable key</b>.</li>
+        <li>Commit the change, wait a minute, then refresh this page.</li>
+      </ol>
+      <p style="margin:0">The setup guide (README) walks through it step by step.</p>
+    </div>
+  </div>
+</div>
+
+<div class="wrap">
+
+  <!-- ===== Top bar ===== -->
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><rect x="6" y="3" width="12" height="18" rx="2"/><circle cx="12" cy="15" r="2.2"/><path d="M9.5 7h5"/></svg>
+      </div>
+      <div><h1>PC Build Tracker</h1><small>Custom PC builds &amp; results</small></div>
+    </div>
+    <span class="save-state" id="saveState" aria-live="polite" data-edit-only></span>
+    <button class="pill" id="workerPill" type="button"><span class="dot"></span><span class="t">Worker</span></button>
+    <button class="pill" id="storagePill" type="button" title="Where your data is saved"><span class="dot"></span><span class="t">Loading…</span></button>
+    <button class="btn ghost" id="settingsBtn" type="button" data-edit-only>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg>
+      Settings
+    </button>
+    <button class="btn ghost" id="lockBtn" type="button" data-edit-only title="Sign out and go back to view-only"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg> Lock</button>
+    <button class="btn primary" id="editBtn" type="button" data-view-only><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg> Sign in to edit</button>
+    <button class="btn primary" id="newBuildBtn" type="button" data-edit-only>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+      New build
+    </button>
+  </header>
+
+  <!-- ===== Summary header ===== -->
+  <section class="stats" aria-label="Summary">
+    <div class="stat active"><div class="k">Active builds</div><div class="v num" id="statActive">0</div><div class="s" id="statActiveSub">&nbsp;</div></div>
+    <div class="stat sold"><div class="k">Sold builds</div><div class="v num" id="statSold">0</div><div class="s" id="statSoldSub">&nbsp;</div></div>
+    <div class="stat capital"><div class="k">Total capital invested</div><div class="v money flow" id="statCapital">£0.00</div><div class="s" id="statCapitalSub">&nbsp;</div></div>
+    <div class="stat profit"><div class="k">Total net profit</div><div class="v money flow" id="statProfit">£0.00</div><div class="s" id="statProfitSub">&nbsp;</div></div>
+  </section>
+
+  <!-- ===== Main tabs ===== -->
+  <div class="tabs-row" data-edit-only>
+    <div class="tabs" role="tablist" aria-label="Sections" id="tabs">
+      <span class="indicator" aria-hidden="true"></span>
+      <button class="tab" role="tab" data-tab="builds" aria-selected="true" aria-controls="panel-builds">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2"/><circle cx="12" cy="14" r="3"/><path d="M9 6h6"/></svg>
+        Builds <span class="count" id="tabCountBuilds"></span>
+      </button>
+      <button class="tab" role="tab" data-tab="finder" data-edit-only aria-selected="false" aria-controls="panel-finder">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        Part <span class="label-long">Finder</span>
+      </button>
+      <button class="tab" role="tab" data-tab="money" data-edit-only aria-selected="false" aria-controls="panel-money">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 7V5a2 2 0 0 0-2-2H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1"/><path d="M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4"/></svg>
+        Money <span class="label-long">&amp; Savings</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- =============================== BUILDS =============================== -->
+  <section class="panel active" id="panel-builds" role="tabpanel">
+    <div class="toolbar">
+      <div class="seg" role="group" aria-label="Filter builds">
+        <button type="button" data-filter="all" aria-pressed="true">All<span class="n" id="nAll"></span></button>
+        <button type="button" data-filter="active" aria-pressed="false">Active<span class="n" id="nActive"></span></button>
+        <button type="button" data-filter="sold" aria-pressed="false">Sold<span class="n" id="nSold"></span></button>
+      </div>
+      <input class="search" id="search" type="search" placeholder="Search builds or parts…" aria-label="Search builds">
+    </div>
+    <main id="grid" class="grid"></main>
+  </section>
+
+  <!-- ============================ PART FINDER ============================ -->
+  <section class="panel" id="panel-finder" role="tabpanel">
+    <div class="finder">
+      <form class="box finder-form" id="finderForm" autocomplete="off">
+        <div class="box-head" style="margin-bottom:0">
+          <div><h3>Exact spec part finder</h3><p class="sub">Cheapest UK eBay listings, sorted by price + postage.</p></div>
+        </div>
+        <div class="field big-input">
+          <label for="fQuery">Part</label>
+          <div style="position:relative">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+            <input id="fQuery" placeholder="e.g. Ryzen 5 3600" required minlength="2" style="padding-left:40px;height:48px;font-size:16px;font-weight:600">
+          </div>
+        </div>
+        <div class="field">
+          <label for="fMax">Max price (incl. postage)</label>
+          <div class="money-field"><span data-cur>£</span><input id="fMax" type="number" inputmode="decimal" min="0" step="0.01" placeholder="No limit"></div>
+        </div>
+        <div class="field">
+          <span class="lbl">Condition</span>
+          <div class="chips" id="fConditions">
+            <button class="chip" type="button" data-cond="used" aria-pressed="true">Used</button>
+            <button class="chip" type="button" data-cond="refurbished" aria-pressed="true">Refurbished</button>
+            <button class="chip" type="button" data-cond="new" aria-pressed="false">New</button>
+          </div>
+        </div>
+        <div class="toggle-row">
+          <div><span class="t">Buy It Now only</span><small>Hide auctions</small></div>
+          <label class="switch"><input type="checkbox" id="fBin" checked aria-label="Buy It Now only"><span></span></label>
+        </div>
+        <div class="toggle-row">
+          <div><span class="t">Exact match</span><small>Every word must appear — “3600” won’t match “3600X”</small></div>
+          <label class="switch"><input type="checkbox" id="fExact" checked aria-label="Exact match"><span></span></label>
+        </div>
+        <div>
+          <button class="disclosure" type="button" id="excludeToggle" aria-expanded="false" aria-controls="excludeCollapse">
+            Excluded words <span id="excludeCount"></span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+          </button>
+          <div class="collapse closed" id="excludeCollapse"><div class="inner">
+            <div class="exclude-area">
+              <div class="tagbox" id="excludeTags"></div>
+              <div class="field" style="display:flex;gap:8px">
+                <input id="excludeInput" placeholder="Add a word or phrase…" aria-label="Add excluded word">
+                <button class="btn sm" type="button" id="excludeAdd">Add</button>
+              </div>
+            </div>
+          </div></div>
+        </div>
+        <div class="form-actions">
+          <button class="btn primary lg" type="submit" id="fSearchBtn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+            Find cheapest
+          </button>
+          <button class="btn lg" type="button" id="fSave" title="Save this search as a preset">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
+            Save
+          </button>
+        </div>
+        <a class="btn ghost sm" id="fOpenEbay" href="#" target="_blank" rel="noopener noreferrer" style="justify-self:start">Open this search on eBay ↗</a>
+      </form>
+
+      <div>
+        <div class="box" style="margin-bottom:var(--s4);padding:16px 18px">
+          <div class="label" style="margin-bottom:10px">Saved searches <span id="savedHint">Click to re-run</span></div>
+          <div class="saved" id="savedSearches"></div>
+        </div>
+        <div id="finderResults"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- =============================== MONEY =============================== -->
+  <section class="panel" id="panel-money" role="tabpanel">
+    <div class="money-top">
+      <!-- Bank balance tracker -->
+      <div class="box">
+        <div class="box-head">
+          <div style="flex:1"><h3>Bank balance tracker</h3><p class="sub">What's really free to spend once active builds are paid for.</p></div>
+        </div>
+        <div class="calc">
+          <div class="calc-row">
+            <div class="k">Current bank balance<small id="bankUpdated">Type your balance</small></div>
+            <label class="bank-input"><span data-cur>£</span><input id="bankBalance" type="number" inputmode="decimal" step="0.01" placeholder="0.00" aria-label="Current bank balance"></label>
+          </div>
+          <div class="calc-row">
+            <div class="k">Pending active build expenses<small id="pendingSub">0 active builds</small></div>
+            <div class="v money flow" id="pendingExp">−£0.00</div>
+          </div>
+          <div class="calc-row total">
+            <div class="k">True free cash</div>
+            <div class="v money" id="freeCash">£0.00</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Personal allowance -->
+      <div class="box">
+        <div class="box-head">
+          <div style="flex:1"><h3>Personal allowance</h3><p class="sub">Your share of profit from each sale.</p></div>
+          <button class="split-chip" type="button" id="splitChip" title="Change the profit split"></button>
+        </div>
+        <div class="allow-hero">
+          <div><div class="k">Available personal balance</div><div class="v money" id="allowAvail">£0.00</div></div>
+          <button class="btn primary" type="button" id="withdrawBtn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M19 12l-7 7-7-7"/></svg>
+            Log personal withdrawal
+          </button>
+        </div>
+        <div class="split-bar" aria-hidden="true"><span class="biz" id="splitBiz"></span><span class="you" id="splitYou"></span></div>
+        <div class="calc">
+          <div class="calc-row"><div class="k">Total allowance earned</div><div class="v money flow" id="allowEarned">+£0.00</div></div>
+          <div class="calc-row"><div class="k">Withdrawn for personal use</div><div class="v money flow" id="allowWithdrawn">−£0.00</div></div>
+          <div class="calc-row"><div class="k">Moved into savings pots<small>from your allowance</small></div><div class="v money flow" id="allowToPots">−£0.00</div></div>
+          <div class="calc-row"><div class="k">Reinvested into business capital</div><div class="v money flow" id="capitalReinvested">+£0.00</div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section-title">
+      <div style="flex:1"><h2>Savings pots</h2><p>Goals with a picture of what you're saving for. Pots can auto-fill when a build sells.</p></div>
+      <button class="btn" type="button" id="newPotBtn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+        New pot
+      </button>
+    </div>
+    <div class="pots" id="pots"></div>
+
+    <div class="section-title">
+      <div style="flex:1"><h2>Money moves</h2><p>Every sale, split, withdrawal and pot transfer. <span class="flow">+ in</span> · <span class="flow">− out</span></p></div>
+    </div>
+    <div class="box" style="padding:6px 16px"><div class="ledger" id="ledger"></div></div>
+  </section>
+</div>
+
+<!-- ===== Mark as Sold ===== -->
+<dialog id="soldDialog" aria-labelledby="soldTitle">
+  <form id="soldForm" method="dialog">
+    <h2 id="soldTitle">Mark as sold</h2>
+    <p class="sub" id="soldBuildName"></p>
+    <div class="field">
+      <label for="salePrice">Final sale price</label>
+      <div class="money-input"><span class="cur" data-cur>£</span><input id="salePrice" type="number" inputmode="decimal" step="0.01" min="0" required placeholder="0.00"></div>
+    </div>
+    <fieldset>
+      <legend>Sales channel</legend>
+      <label class="opt"><input type="radio" name="channel" value="ebay" checked><span><strong>eBay</strong><small id="ebayFeeLabel">13% fee</small></span></label>
+      <label class="opt"><input type="radio" name="channel" value="local"><span><strong>Local / Cash</strong><small>No fees</small></span></label>
+    </fieldset>
+    <dl class="breakdown">
+      <div><dt>Sale price</dt><dd class="flow" id="bdPrice">—</dd></div>
+      <div><dt id="bdFeeLabel">eBay fee</dt><dd class="flow" id="bdFee">—</dd></div>
+      <div><dt>Build cost</dt><dd class="flow" id="bdCost">—</dd></div>
+      <div><dt>Net profit</dt><dd id="bdNet">—</dd></div>
+    </dl>
+    <div class="split-preview" id="splitPreview"></div>
+    <div class="dlg-actions">
+      <button class="btn ghost" value="cancel" formnovalidate>Cancel</button>
+      <button class="btn primary" value="confirm">Confirm sale</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- ===== Settings ===== -->
+<dialog id="settingsDialog" class="wide" aria-labelledby="settingsTitle">
+  <form id="settingsForm" method="dialog">
+    <h2 id="settingsTitle">Settings</h2>
+    <div class="settings-block" style="border-top:0;padding-top:0">
+      <h3>eBay selling fees</h3>
+      <div class="form-row">
+        <label class="field"><span class="lbl">Final value fee %</span><input id="setFee" type="number" step="0.1" min="0" max="100" placeholder="13"></label>
+        <label class="field"><span class="lbl">Fixed fee per order (£)</span><input id="setFixed" type="number" step="0.01" min="0" placeholder="0.00"></label>
+      </div>
+      <p>Used when you pick “eBay” as the sales channel. Local / cash sales have no fees.</p>
+    </div>
+    <div class="settings-block">
+      <div class="toggle-row">
+        <div><h3>Profit split rule</h3><p>Automatically split each sale's net profit when you mark it sold.</p></div>
+        <label class="switch"><input type="checkbox" id="setSplitOn" aria-label="Profit split on"><span></span></label>
+      </div>
+      <div id="splitControls">
+        <input type="range" id="setSplit" min="0" max="100" step="5" aria-label="Reinvest percentage">
+        <div class="split-legend"><span>Business capital <b id="setSplitBiz">50%</b></span><span>Personal allowance <b id="setSplitYou">50%</b></span></div>
+      </div>
+    </div>
+    <div class="settings-block">
+      <h3>Currency</h3>
+      <div class="form-row"><label class="field"><span class="lbl">Symbol</span><input id="setCurrency" maxlength="4" placeholder="£"></label></div>
+    </div>
+    <div class="settings-block" id="checkerBlock"></div>
+    <div class="settings-block" id="accountBlock"></div>
+    <div class="settings-block">
+      <h3>Backup</h3>
+      <p>Export everything (builds, money, pots, saved searches) as a JSON file, or import one — including the <code>pc_builds_data.json</code> from the old PC app.</p>
+      <div class="btn-row">
+        <button class="btn sm" type="button" id="exportBtn">Export JSON</button>
+        <button class="btn sm" type="button" id="importBtn">Import JSON…</button>
+        <input type="file" id="importFile" accept=".json,application/json" hidden>
+      </div>
+    </div>
+    <div class="dlg-actions">
+      <button class="btn ghost" value="cancel" formnovalidate>Close</button>
+      <button class="btn primary" value="save">Save settings</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- ===== Savings pot (create / edit) ===== -->
+<dialog id="potDialog" class="wide" aria-labelledby="potTitle">
+  <form id="potForm" method="dialog">
+    <h2 id="potTitle">New savings pot</h2>
+    <div class="form-row">
+      <label class="field"><span class="lbl">Name</span><input id="potName" required maxlength="60" placeholder="e.g. New GPU"></label>
+      <label class="field"><span class="lbl">Target</span><div class="money-field"><span data-cur>£</span><input id="potTarget" type="number" inputmode="decimal" min="1" step="0.01" required placeholder="500"></div></label>
+    </div>
+    <div class="field">
+      <span class="lbl">Picture</span>
+      <div class="img-drop" id="potDrop">
+        <span id="potDropText">Drop an image here, paste one (Ctrl+V), or choose a file</span>
+      </div>
+      <div class="btn-row" style="margin-top:8px">
+        <button class="btn sm" type="button" id="potFileBtn">Choose image…</button>
+        <input type="file" id="potFile" accept="image/*" hidden>
+        <input id="potUrl" type="url" placeholder="…or paste an image URL" style="flex:1;min-width:180px">
+      </div>
+    </div>
+    <div class="settings-block">
+      <h3>Auto-contribution</h3>
+      <p>When a build is marked sold, route a percentage into this pot.</p>
+      <div class="form-row">
+        <label class="field"><span class="lbl">Percentage</span><input id="potAutoPct" type="number" min="0" max="100" step="1" placeholder="0 = off"></label>
+        <label class="field"><span class="lbl">Taken from</span>
+          <select id="potAutoSource"><option value="allowance">My personal allowance</option><option value="profit">Net profit (before split)</option></select>
+        </label>
+      </div>
+    </div>
+    <p class="form-error" id="potError"></p>
+    <div class="dlg-actions">
+      <button class="btn danger" type="button" id="potDelete" style="margin-right:auto">Delete pot</button>
+      <button class="btn ghost" value="cancel" formnovalidate>Cancel</button>
+      <button class="btn primary" value="save" id="potSave">Create pot</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- ===== Money (withdrawal / deposit) ===== -->
+<dialog id="moneyDialog" aria-labelledby="moneyTitle">
+  <form id="moneyForm" method="dialog">
+    <h2 id="moneyTitle">Amount</h2>
+    <p class="sub" id="moneySub"></p>
+    <div class="field">
+      <label for="moneyAmount">Amount</label>
+      <div class="money-input"><span class="cur" id="moneySign">£</span><input id="moneyAmount" type="number" inputmode="decimal" step="0.01" min="0.01" required placeholder="0.00"></div>
+    </div>
+    <label class="field"><span class="lbl">Note (optional)</span><input id="moneyNote" maxlength="80" placeholder="What's it for?"></label>
+    <label class="check" id="moneyCheckWrap"><input type="checkbox" id="moneyCheck"><span id="moneyCheckLabel"></span></label>
+    <p class="form-error" id="moneyError"></p>
+    <div class="dlg-actions">
+      <button class="btn ghost" value="cancel" formnovalidate>Cancel</button>
+      <button class="btn primary" value="ok" id="moneyOk">Confirm</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- ===== Prompt (text) ===== -->
+<dialog id="promptDialog" aria-labelledby="promptTitle">
+  <form method="dialog">
+    <h2 id="promptTitle">Name</h2>
+    <label class="field"><span class="lbl" id="promptLabel">Name</span><input id="promptInput" required maxlength="60"></label>
+    <div class="dlg-actions">
+      <button class="btn ghost" value="cancel" formnovalidate>Cancel</button>
+      <button class="btn primary" value="ok">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- ===== Confirm ===== -->
+<dialog id="confirmDialog" aria-labelledby="confirmTitle">
+  <form method="dialog">
+    <h2 id="confirmTitle">Are you sure?</h2>
+    <p class="sub" id="confirmText" style="margin:0"></p>
+    <div class="dlg-actions">
+      <button class="btn ghost" value="cancel" formnovalidate>Cancel</button>
+      <button class="btn primary" value="ok" id="confirmOk">Confirm</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- ===== Sign in ===== -->
+<dialog id="loginDialog" aria-labelledby="loginTitle">
+  <form method="dialog">
+    <h2 id="loginTitle">Sign in to edit</h2>
+    <p class="sub">Only approved editors can make changes. Everyone else can view.</p>
+    <label class="field"><span class="lbl">Email</span><input id="loginEmail" type="email" autocomplete="username" required></label>
+    <label class="field"><span class="lbl">Password</span><input id="loginPassword" type="password" autocomplete="current-password" required></label>
+    <p class="form-error" id="loginError" role="alert"></p>
+    <div class="dlg-actions">
+      <button class="btn ghost sm" type="button" id="forgotBtn" style="margin-right:auto">Forgot password?</button>
+      <button class="btn ghost" value="cancel" formnovalidate>Cancel</button>
+      <button class="btn primary" value="ok" id="loginBtn">Sign in</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- ===== Two-step code ===== -->
+<dialog id="mfaDialog" aria-labelledby="mfaTitle">
+  <form method="dialog">
+    <h2 id="mfaTitle">Two-step verification</h2>
+    <p class="sub">Enter the 6-digit code from your authenticator app.</p>
+    <label class="field"><span class="lbl">Code</span><input id="mfaCode" class="code-input" inputmode="numeric" autocomplete="one-time-code" maxlength="7" required></label>
+    <p class="form-error" id="mfaError" role="alert"></p>
+    <div class="dlg-actions">
+      <button class="btn ghost" value="cancel" formnovalidate>Cancel</button>
+      <button class="btn primary" value="ok">Verify</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- ===== Set up two-step ===== -->
+<dialog id="enrollDialog" aria-labelledby="enrollTitle">
+  <form method="dialog">
+    <h2 id="enrollTitle">Set up two-step verification</h2>
+    <ol class="steps">
+      <li>Open an authenticator app (Google Authenticator, Microsoft Authenticator, 1Password…).</li>
+      <li>Scan this QR code, or type the key underneath.</li>
+      <li>Enter the 6-digit code it shows.</li>
+    </ol>
+    <img class="qr" id="enrollQr" alt="QR code for your authenticator app">
+    <div class="secret-code" id="enrollSecret"></div>
+    <label class="field"><span class="lbl">Code from the app</span><input id="enrollCode" class="code-input" inputmode="numeric" autocomplete="one-time-code" maxlength="7" required></label>
+    <p class="form-error" id="enrollError" role="alert"></p>
+    <div class="dlg-actions">
+      <button class="btn ghost" value="cancel" formnovalidate>Cancel</button>
+      <button class="btn primary" value="ok">Turn on</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- ===== New password ===== -->
+<dialog id="pwDialog" aria-labelledby="pwTitle">
+  <form method="dialog">
+    <h2 id="pwTitle">Choose a new password</h2>
+    <p class="sub">At least 10 characters. A long phrase is easiest to remember.</p>
+    <label class="field"><span class="lbl">New password</span><input id="pw1" type="password" autocomplete="new-password" required></label>
+    <label class="field"><span class="lbl">Repeat it</span><input id="pw2" type="password" autocomplete="new-password" required></label>
+    <p class="form-error" id="pwError" role="alert"></p>
+    <div class="dlg-actions">
+      <button class="btn ghost" value="cancel" formnovalidate>Cancel</button>
+      <button class="btn primary" value="ok">Save password</button>
+    </div>
+  </form>
+</dialog>
+
+<div class="menu" id="menu" role="menu"></div>
+<div class="toasts" id="toasts" aria-live="polite"></div>
+
+<script src="config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="app.js"></script>
+</body>
+</html>
